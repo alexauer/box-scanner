@@ -43,6 +43,7 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
         sceneView.contentScaleFactor = 1.0
         
         actionButton.setTitle("Start Scan", for: .normal)
+        
     }
         
     /// - Tag: StartARSession
@@ -117,40 +118,8 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
             let plane = node.childNodes.first as? Plane
             else { return }
         
-        // Update ARSCNPlaneGeometry to the anchor's new estimated shape.
-        if let planeGeometry = plane.meshNode.geometry as? ARSCNPlaneGeometry {
-            planeGeometry.update(from: planeAnchor.geometry)
-        }
-
-        // Update extent visualization to the anchor's new bounding rectangle.
-        if let extentGeometry = plane.extentNode.geometry as? SCNPlane {
-            extentGeometry.width = CGFloat(planeAnchor.planeExtent.width)
-            extentGeometry.height = CGFloat(planeAnchor.planeExtent.height)
-            plane.extentNode.simdPosition = planeAnchor.center
-        }
-        
-        if let dimensionsNode = plane.classificationNode,
-           let textGeometry = dimensionsNode.geometry as? SCNText {
-            let newDimensionsText = getPlaneDimensionsText(anchor: planeAnchor)
-            if let oldText = textGeometry.string as? String, oldText != newDimensionsText {
-                textGeometry.string = newDimensionsText
-                dimensionsNode.centerAlign()
-            }
-        }
-        
-    }
-
-    // MARK: - ARSessionDelegate
-
-    func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
-        guard let frame = session.currentFrame else { return }
-    }
-
-    func session(_ session: ARSession, didRemove anchors: [ARAnchor]) {
-        guard let frame = session.currentFrame else { return }
-    }
-
-    func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
+        // Update the plane's visualization
+        plane.update(anchor: planeAnchor)
     }
 
     // MARK: - ARSessionObserver

@@ -23,6 +23,10 @@ extension ARPlaneAnchor.Classification {
             return "Seat"
         case .none(.unknown):
             return "Unknown"
+        case .door:
+            return "Door"
+        case .window:
+            return "Window"
         default:
             return ""
         }

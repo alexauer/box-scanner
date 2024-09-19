@@ -51,14 +51,26 @@ class Plane: SCNNode {
         
         // Display the plane's classification, if supported on the device
         if #available(iOS 12.0, *), ARPlaneAnchor.isClassificationSupported {
-            let dimensionsText = getPlaneDimensionsText(anchor: anchor)
-            let textNode = self.makeTextNode(dimensionsText)
+            let classification = anchor.classification.description
+            let dimensionsText = self.getPlaneDimensionsText(anchor: anchor)
+            let combinedText = "Classification: \(classification)\n\(dimensionsText)"
+            let textNode = self.makeTextNode(combinedText)
             classificationNode = textNode
             // Change the pivot of the text node to its center
             textNode.centerAlign()
             // Add the classification node as a child node so that it displays the classification
             extentNode.addChildNode(textNode)
-        }
+        } else {
+           // If classification is not supported, display only dimensions
+            let dimensionsText = self.getPlaneDimensionsText(anchor: anchor)
+            let combinedText = "Classification: not supported \n\(dimensionsText)"
+            let textNode = self.makeTextNode(combinedText)
+            classificationNode = textNode
+            // Change the pivot of the text node to its center
+            textNode.centerAlign()
+            // Add the dimensions node as a child node so that it displays the dimensions
+            extentNode.addChildNode(textNode)
+            }
         #endif
     }
     
@@ -68,8 +80,7 @@ class Plane: SCNNode {
     
     private func setupMeshVisualStyle() {
         // Make the plane visualization semitransparent to clearly show real-world placement.
-        meshNode.opacity = 0.25
-        
+        meshNode.opacity = 0.40
         // Use color and blend mode to make planes stand out.
         guard let material = meshNode.geometry?.firstMaterial
             else { fatalError("ARSCNPlaneGeometry always has one material") }
@@ -95,6 +106,40 @@ class Plane: SCNNode {
             fatalError("Can't load wireframe shader: \(error)")
         }
     }
+    func update(anchor: ARPlaneAnchor) {
+        // Update mesh geometry
+        if let meshGeometry = meshNode.geometry as? ARSCNPlaneGeometry {
+            meshGeometry.update(from: anchor.geometry)
+        }
+        
+        // Update extent geometry
+        if let extentGeometry = extentNode.geometry as? SCNPlane {
+            extentGeometry.width = CGFloat(anchor.planeExtent.width)
+            extentGeometry.height = CGFloat(anchor.planeExtent.height)
+            extentNode.simdPosition = anchor.center
+        }
+        
+        // Update classification and dimensions text
+        if let classificationNode = classificationNode,
+           let textGeometry = classificationNode.geometry as? SCNText {
+            if #available(iOS 12.0, *), ARPlaneAnchor.isClassificationSupported {
+                let classification = anchor.classification.description
+                let dimensionsText = self.getPlaneDimensionsText(anchor: anchor)
+                let combinedText = "Classification: \(classification)\n\(dimensionsText)"
+                if let oldText = textGeometry.string as? String, oldText != combinedText {
+                    textGeometry.string = combinedText
+                    classificationNode.centerAlign()
+                }
+            } else {
+                let dimensionsText = self.getPlaneDimensionsText(anchor: anchor)
+                if let oldText = textGeometry.string as? String, oldText != dimensionsText {
+                    textGeometry.string = dimensionsText
+                    classificationNode.centerAlign()
+                }
+            }
+        }
+    }
+
     
     private func makeTextNode(_ text: String) -> SCNNode {
         let textGeometry = SCNText(string: text, extrusionDepth: 1)
@@ -106,12 +151,18 @@ class Plane: SCNNode {
         
         return textNode
     }
+    private func getPlaneDimensionsText(anchor: ARPlaneAnchor) -> String {
+        let width = anchor.planeExtent.width
+        let length = anchor.planeExtent.height
+        let dimensionsText = String(format: "Width: %.2f m\nLength: %.2f m", width, length)
+        return dimensionsText
+    }
     
 }
 
 public func getPlaneDimensionsText(anchor: ARPlaneAnchor) -> String {
     let width = anchor.planeExtent.width
-    let height = anchor.planeExtent.height
-    let dimensionsText = String(format: "Width: %.2f m\nHeigth: %.2f m", width, height)
+    let length = anchor.planeExtent.height
+    let dimensionsText = String(format: "Width: %.2f m\nLength: %.2f m", width, length)
     return dimensionsText
 }
