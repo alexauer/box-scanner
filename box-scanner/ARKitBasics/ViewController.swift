@@ -15,15 +15,33 @@ enum ARSessionState {
     case paused
 }
 
+struct BoundingBox {
+    var width: Float
+    var height: Float
+    var length: Float
+}
+
+
 class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
     // MARK: - IBOutlets
 
 
     @IBOutlet weak var actionButton: UIButton!
+    @IBOutlet weak var sendButton: UIButton!
     @IBOutlet weak var sessionInfoView: UIView!
     @IBOutlet weak var sceneView: ARSCNView!
     
+    @IBOutlet weak var infoText: UITextField!
     var sessionState: ARSessionState = .notStarted
+    // Collection to store ARPlaneAnchors with .none classification
+    var noneClassifiedPlanes: [ARPlaneAnchor] = []
+    
+    // Bounding box
+    var boundingBox: BoundingBox?
+    var boundingBoxNode: SCNNode?
+    
+    // Endpoint URL (Replace with your actual endpoint)
+    let endpointURL = URL(string: "http://192.168.178.109:8000/boxes/success1/size")!
 
     // MARK: - View Life Cycle
     override func viewDidLoad() {
@@ -43,6 +61,8 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
         sceneView.contentScaleFactor = 1.0
         
         actionButton.setTitle("Start Scan", for: .normal)
+        infoText.isHidden = false
+        infoText.text = "Press Start Scan to begin"
         
     }
         
@@ -63,6 +83,17 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
     
     // Start the AR session
     private func startARSession() {
+        
+        infoText.isHidden = true
+        infoText.text = ""
+        
+        // Reset previous data
+        noneClassifiedPlanes.removeAll()
+        boundingBox = nil
+        sendButton.isHidden = true
+        boundingBoxNode?.removeFromParentNode()
+        boundingBoxNode = nil
+
 
         // Start the view's AR session with a configuration that uses the rear camera,
         // device position and orientation tracking, and plane detection.
@@ -74,25 +105,14 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
             configuration.sceneReconstruction = .mesh
         }
         sceneView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
-
+        
     }
     
     private func pauseARSession() {
         // Pause the session but keep the detected planes visible
-        sceneView.session.pause()
-    }
-    
-    private func resumeARSession() {
-        let configuration = ARWorldTrackingConfiguration()
-        configuration.planeDetection = [.horizontal, .vertical]
-        configuration.environmentTexturing = .automatic
+        stopPlaneDetection()
+        calculateBoundingBox()
 
-        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
-            configuration.sceneReconstruction = .mesh
-        }
-
-        // Resume the session without resetting tracking or removing anchors
-        sceneView.session.run(configuration, options: [])
     }
 
 
@@ -102,6 +122,12 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
     func renderer(_ renderer: SCNSceneRenderer, didAdd node: SCNNode, for anchor: ARAnchor) {
         // Place content only for anchors found by plane detection.
         guard let planeAnchor = anchor as? ARPlaneAnchor else { return }
+        
+        // Check if the plane has .none classification
+        if #available(iOS 12.0, *), planeAnchor.classification == .none(.unknown) {
+            // Store the plane anchor
+            noneClassifiedPlanes.append(planeAnchor)
+        }
         
         // Create a custom object to visualize the plane geometry and extent.
         let plane = Plane(anchor: planeAnchor, in: sceneView)
@@ -120,6 +146,13 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
         
         // Update the plane's visualization
         plane.update(anchor: planeAnchor)
+        
+        // If the plane's classification changed to .none(.unknown), add it to the collection
+        if #available(iOS 12.0, *), planeAnchor.classification == .none(.unknown) {
+            if !noneClassifiedPlanes.contains(where: { $0.identifier == planeAnchor.identifier }) {
+                noneClassifiedPlanes.append(planeAnchor)
+            }
+        }
     }
 
     // MARK: - ARSessionObserver
@@ -163,6 +196,56 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
         }
     }
     
+    // MARK: - Bounding Box Calculation
+    
+    private func calculateBoundingBox() {
+
+        let plane1 = noneClassifiedPlanes[0]
+        let plane2 = noneClassifiedPlanes[1]
+        
+        let h1 = plane1.planeExtent.height
+        let w1 = plane1.planeExtent.width
+        
+        let h2 = plane2.planeExtent.height
+        let w2 = plane2.planeExtent.width
+        
+        let d_min = min(abs(h1-h2), abs(h1-w2), abs(w1-h2), abs(w1-w2))
+        
+        var height: Float = 0
+        var width: Float = 0
+        var length: Float = 0
+        
+        if (abs(h1-h2) == d_min){
+            height = h1
+            width = w1
+            length = w2
+        } else if (abs(h1-w2) == d_min) {
+            height = h1
+            width = w1
+            length = h2
+        } else if (abs(w1-h2) == d_min) {
+            height = h1
+            width = w1
+            length = w2
+        } else if (abs(w1-w2) == d_min ){
+            height = h1
+            width = h2
+            length = w2
+        }
+
+        // Sort height, width, and length from small to big
+        let dimensions = [height, width, length].sorted()
+        
+        boundingBox = BoundingBox(width: dimensions[0], height: dimensions[1], length: dimensions[2])
+        
+        infoText.isHidden = false
+        infoText.text = "W: \(dimensions[0]), H: \(dimensions[1]), L: \(dimensions[2])"
+        sendButton.isHidden = false
+        
+    }
+    
+    
+    
     // MARK: - Button logic
     
     @IBAction func actionButtonPressed(_ sender: UIButton) {
@@ -173,7 +256,7 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
             actionButton.setTitle("Stop Scan", for: .normal)
             actionButton.tintColor = UIColor.red
         case .running:
-            stopPlaneDetection()
+            pauseARSession()
             sessionState = .paused
             actionButton.setTitle("Restart Scan", for: .normal)
             actionButton.tintColor = UIColor.gray
@@ -183,6 +266,14 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
             actionButton.setTitle("Stop Scan", for: .normal)
             actionButton.tintColor = UIColor.red
         }
+    }
+    @IBAction func sendButtonPressed(_ sender: Any) {
+        if let box = boundingBox {
+            sendBoxDimensions(box)
+        } else {
+            print("BoundingBox is nil")
+        }
+        sendButton.isEnabled = false
     }
     
     func stopPlaneDetection() {
@@ -202,4 +293,91 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
         configuration.planeDetection = [.horizontal, .vertical]
         sceneView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
     }
+    
+    private func sendBoxDimensions(_ box: BoundingBox) {
+        
+        var request = URLRequest(url: endpointURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        // Prepare JSON payload
+        let payload: [Float] = [
+            box.width,
+            box.height,
+            box.length
+        ]
+        
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
+            request.httpBody = jsonData
+        } catch {
+            return
+        }
+        
+        // Create data task
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            // Handle response on the main thread
+            DispatchQueue.main.async {
+
+                
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    return
+                }
+                
+                if (200...299).contains(httpResponse.statusCode) {
+                    self.infoText.text = "Package size sent successfully"
+                }else {
+                    self.infoText.text = "Error sending"
+                }
+            }
+        }
+        
+        task.resume()
+    }
+    
+}
+
+
+extension ARPlaneAnchor {
+    /// Computes the four corner points of the plane in world coordinates.
+    func cornerPoints() -> [SIMD3<Float>] {
+        let center = self.center
+        let extent = self.planeExtent
+        let transform = self.transform
+        
+        // Local axes
+        let right = SIMD3<Float>(transform.columns.0.x, transform.columns.0.y, transform.columns.0.z)
+        let up = SIMD3<Float>(transform.columns.1.x, transform.columns.1.y, transform.columns.1.z)
+        let normal = SIMD3<Float>(transform.columns.2.x, transform.columns.2.y, transform.columns.2.z)
+        
+        // Half extents
+        let halfWidth = extent.width / 2
+        let halfLength = extent.height / 2
+        
+        // Assuming planes are either horizontal or vertical
+        // Adjust corner calculations based on plane orientation
+        let isHorizontal = abs(normal.y) > 0.9
+        
+        var corner1: SIMD3<Float>
+        var corner2: SIMD3<Float>
+        var corner3: SIMD3<Float>
+        var corner4: SIMD3<Float>
+        
+        if isHorizontal {
+            // Horizontal plane (floor/ceiling)
+            corner1 = center + (-right * halfWidth) + (-up * halfLength)
+            corner2 = center + (right * halfWidth) + (-up * halfLength)
+            corner3 = center + (right * halfWidth) + (up * halfLength)
+            corner4 = center + (-right * halfWidth) + (up * halfLength)
+        } else {
+            // Vertical plane (wall)
+            corner1 = center + (-right * halfWidth) + (-up * halfLength)
+            corner2 = center + (right * halfWidth) + (-up * halfLength)
+            corner3 = center + (right * halfWidth) + (up * halfLength)
+            corner4 = center + (-right * halfWidth) + (up * halfLength)
+        }
+        
+        return [corner1, corner2, corner3, corner4]
+    }
+    
 }

@@ -157,12 +157,4 @@ class Plane: SCNNode {
         let dimensionsText = String(format: "Width: %.2f m\nLength: %.2f m", width, length)
         return dimensionsText
     }
-    
-}
-
-public func getPlaneDimensionsText(anchor: ARPlaneAnchor) -> String {
-    let width = anchor.planeExtent.width
-    let length = anchor.planeExtent.height
-    let dimensionsText = String(format: "Width: %.2f m\nLength: %.2f m", width, length)
-    return dimensionsText
 }
